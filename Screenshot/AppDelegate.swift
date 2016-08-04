@@ -15,18 +15,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     var statusBar = NSStatusBar.systemStatusBar()
     var statusBarItem = NSStatusItem()
-    
+
     var recorder: MovieRecorder?
     var screenshotCaptureMode: Bool = false
     var gifCaptureMode: Bool = false
     // True if the gif recorder is recording
     var capturingGif: Bool = false
-    
+
     weak var rectangleView: NSView?
     var overlayWindow: OverlayWindow?
+    
     @IBOutlet weak var menu: NSMenu!
 
     func applicationDidFinishLaunching(aNotification: NSNotification) {
+        // Terminate application if it is already running somewhere else
+        if NSRunningApplication.runningApplicationsWithBundleIdentifier(NSBundle.mainBundle().bundleIdentifier!).count > 1 {
+            NSApp.terminate(nil)
+        }
+        
         // Create local temp file directory
         do {
             let paths = NSSearchPathForDirectoriesInDomains(.ApplicationSupportDirectory, .UserDomainMask, true)
@@ -64,6 +70,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(aNotification: NSNotification) {
         // Insert code here to tear down your application
         MASShortcutMonitor.sharedMonitor().unregisterAllShortcuts()
+    }
+    
+    @IBAction func exit(sender: AnyObject) {
+        NSApp.terminate(nil)
     }
     
     override func awakeFromNib() {
@@ -140,8 +150,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.endScreenshotMode()
             }
         }
+        
+        //postMedia(pngImage!, ext: "png") {
+        //
+        //}
     }
-
     func captureGIF(rect: CGRect) {
         if let window = self.overlayWindow {
             self.capturingGif = true
@@ -156,14 +169,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let window = overlayWindow!
         window.gifRecordModeOff()
+        self.attachStatusWindow()
         self.recorder!.stopRecording { (outputFileURL) in
             let panel = NSSavePanel()
-            panel.nameFieldStringValue = "movie.mov"
+            panel.nameFieldStringValue = "movie.gif"
             panel.beginSheetModalForWindow(window) { (res) in
+                let data = NSData(contentsOfURL: outputFileURL)
+                if data == nil {
+                    print("Failed loading GIF")
+                    return
+                }
                 if (res == NSFileHandlingPanelOKButton) {
                     let toFile = panel.URL
                     print("WRITING TO", toFile!.absoluteString)
                     do {
+                        //self.postMedia(data!, ext: "gif") {
+                        //
+                        //}
+
                         // Copy temp file
                         try NSFileManager.defaultManager().copyItemAtURL(outputFileURL, toURL: toFile!)
                     } catch {
@@ -253,6 +276,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return event
     }
     
+    func attachStatusWindow() {
+        // TODO: Implement
+    }
+    
+    func detachStatusWindow() {
+        // TODO: Implement
+    }
+    
     func attachView(origin: CGPoint) {
         if overlayWindow == nil {
             return
@@ -271,6 +302,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let view = rectangleView {
             view.removeFromSuperview()
         }
+    }
+    
+    func postMedia(media: NSData, ext: NSString, callback: () -> Void) {
+        let base64 = media.base64EncodedStringWithOptions(NSDataBase64EncodingOptions(rawValue: 0))
+        let json = "{\"data\": \"\(base64)\", \"extension\": \"\(ext)\"}"
+        let request = NSMutableURLRequest(URL: NSURL(string: "http://127.0.0.1:8000/media")!)
+        request.HTTPMethod = "POST"
+        request.HTTPBody = json.dataUsingEncoding(NSUTF8StringEncoding)
+        let task = NSURLSession.sharedSession().dataTaskWithRequest(request) { data, response, error in
+            guard error == nil && data != nil else {
+                print("error=\(error)")
+                return
+            }
+            
+            if let httpStatus = response as? NSHTTPURLResponse where httpStatus.statusCode != 200 {
+                print("statusCode should be 200, but is \(httpStatus.statusCode)")
+                print("response = \(response)")
+            }
+            
+            let responseString = NSString(data: data!, encoding: NSUTF8StringEncoding)
+            print("responseString = \(responseString)")
+        }
+        task.resume()
     }
 }
 
@@ -310,8 +364,6 @@ class MovieRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     
     func startRecordingToTemp(rect: CGRect) {
         print("Starting recording function")
-        // FIXME: The setup here can noticably take a while, to the point where a video
-        // will start noticably after a mouse-up.
         func start(rect: CGRect) {
             self.input!.cropRect = rect
             let tempPath = ("file://" + tempPathName()).stringByAddingPercentEncodingWithAllowedCharacters(NSCharacterSet.URLQueryAllowedCharacterSet())!
@@ -341,20 +393,42 @@ class MovieRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     }
     
     func captureOutput(captureOutput: AVCaptureFileOutput!, didFinishRecordingToOutputFileAtURL outputFileURL: NSURL!, fromConnections connections: [AnyObject]!, error: NSError!) {
-        print("Capture Output")
+        print("Capture Output", outputFileURL.absoluteString)
         session?.stopRunning()
         session = nil
-        self.callback!(outputUrl: outputFileURL)
-        self.callback = nil
+        // Convert file to GIF using ffmpeg. FIXME: Add spinner during execution
+        let filename = outputFileURL.lastPathComponent!
+        print("Filename", filename)
+        let id = filename.componentsSeparatedByString(".")[0]
+        print("ID", id)
+        let gifOutputURL = outputFileURL.URLByDeletingLastPathComponent!.URLByAppendingPathComponent("\(id).gif")
+        let task = NSTask()
+        task.launchPath = "/usr/local/bin/ffmpeg"
+        task.arguments =  ["-i", "\(filename)", "-pix_fmt", "rgb24", "\(id).gif"]
+        print("Launch path", task.launchPath)
+        task.currentDirectoryPath = applicationDirectory() as String
+        task.terminationHandler = { (task: NSTask) -> () in
+            print("*****************\nTask done")
+            // Execute callback on main thread
+            dispatch_async(dispatch_get_main_queue()) {
+                self.callback!(outputUrl: gifOutputURL)
+                self.callback = nil
+            }
+        }
+        task.launch()
     }
     
     func tempPathName() -> String {
         let uuid = NSUUID().UUIDString
         let filename = "tmp_\(uuid).mov"
+        return applicationDirectory().stringByAppendingPathComponent(filename)
         
+    }
+    
+    func applicationDirectory() -> NSString {
         let paths = NSSearchPathForDirectoriesInDomains(.ApplicationSupportDirectory, .UserDomainMask, true)
         let path = paths[0] as NSString
-        return path.stringByAppendingPathComponent("Screenshot/" + filename)
+        return path.stringByAppendingPathComponent("Screenshot")
     }
     
     deinit {

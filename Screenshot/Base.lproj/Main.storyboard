@@ -10,16 +10,21 @@
             <objects>
                 <menu title="Screenshot" id="WB3-L0-ftr">
                     <items>
-                        <menuItem title="Screenshot" keyEquivalent="5" id="QnG-Zt-b16">
-                            <connections>
-                                <action selector="screenshot:" target="Voe-Tx-rLC" id="yx3-jR-3SN"/>
-                            </connections>
+                        <menuItem title="Screenshot" keyEquivalent="5" id="QnG-Zt-b16"/>
+                        <menuItem title="Caputre GIF" keyEquivalent="5" id="Vef-DS-kvr">
+                            <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>
                         </menuItem>
                         <menuItem isSeparatorItem="YES" id="q50-w1-SoO"/>
                         <menuItem title="Preferences" id="Vvf-I4-Xwc">
                             <modifierMask key="keyEquivalentModifierMask"/>
                             <connections>
                                 <action selector="preferences:" target="Voe-Tx-rLC" id="all-Y3-Rek"/>
+                            </connections>
+                        </menuItem>
+                        <menuItem title="Exit" id="HbB-Ww-0LZ">
+                            <modifierMask key="keyEquivalentModifierMask"/>
+                            <connections>
+                                <action selector="exit:" target="Voe-Tx-rLC" id="mSl-Ea-see"/>
                             </connections>
                         </menuItem>
                     </items>
